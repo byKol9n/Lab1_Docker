@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+
+  redis:
+    image: redis:latest
+    container_name: redis_db
+    env_file:
+      - .env
+    restart: always
+    ports:
+      - 6379:6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - noname_project:/data
+
+  postgre:
+    image: postgres
+    container_name: postgre_db
+    env_file:
+      - .env
+    restart: unless-stopped
+    ports:
+      - 5432:5432
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'pg_isready -U postgres -d postgres'"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s  
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: "/var/lib/postgresql/data/pgdata"
+    volumes:
+       - noname_project:/var/lib/postgresql/data
+       - ./query/sql/pg_up_001.sql:/docker-entrypoint-initdb.d/pg_up_001.sql
+       - ./query/sql/pg_up_002.sql:/docker-entrypoint-initdb.d/pg_up_002.sql
+
+  elastic:
+    image: elasticsearch:8.10.2
+    container_name: elastic_db
+    env_file:
+      - .env
+    ports:
+      - 9200:9200
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: false
+    volumes:
+      - noname_project:/usr/share/elasticsearch/data
+
+  neo4j:
+    image: neo4j:4.0.3
+    hostname: neo4j
+    container_name: neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - noname_project:/plugins
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
+    command: "docker exec -i neo4j bin/neo4j-shell < ./query/cql/setup.cql"
+
+  app:
+    build: .
+    container_name: app
+    env_file:
+      - .env
+    ports:
+      - ${LOCAL_SERVICES_PORT}:4040
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgre:
+        condition: service_healthy
+
+volumes:
+  noname_project:
+    driver: local
